@@ -64,5 +64,3 @@
 ## 🤝 Автор
 
 Разработчик: [@kewanmov](https://t.me/kewanmov)
-
- Разработчик: [@kewanmov](https://t.me/kewanmov)
