@@ -18,12 +18,11 @@ from tg_bot import CBT as _CBT, static_keyboards as skb
 
 from pydantic import BaseModel, Field
 
-import httpx
 import requests
 from bs4 import BeautifulSoup
 
 NAME = "Auto Ticket"
-VERSION = "1.0.0"
+VERSION = "1.0.1"
 DESCRIPTION = "Плагин для автоматической отправки информации о неподтвержденных заказах в техподдержку FunPay."
 CREDITS = "@kewanmov"
 UUID = "d217ee86-8269-4282-a1bc-c0bea1365205"
@@ -91,57 +90,6 @@ def parse_funpay_date(date_obj) -> float:
     except:
         logger.warning(f"{PREFIX} Не удалось распарсить дату заказа: '{date_str}'")
         return 0
-
-
-async def get_old_orders_for_ticket(acc: Account, age_hours: int, max_count: int) -> List[str]:
-    old_orders_ids = []
-    cutoff_timestamp = (datetime.now() - timedelta(hours=age_hours)).timestamp()
-    start_from = None
-    subcs = {}
-    locale = acc.locale
-    page_count = 0
-    max_pages = 10
-
-    while len(old_orders_ids) < max_count and page_count < max_pages:
-        try:
-            result = acc.get_sales(start_from=start_from, state=OrderStatuses.PAID, locale=locale, subcategories=subcs)
-            page_count += 1
-        except Exception as e:
-            logger.error(f"{PREFIX} Ошибка получения заказов: {e}", exc_info=True)
-            break
-
-        if not result or not result[1]:
-            break
-
-        batch_timestamps = []
-        for order_data in result[1]:
-            order_timestamp = parse_funpay_date(order_data.date)
-            if order_timestamp == 0:
-                continue
-            batch_timestamps.append(order_timestamp)
-
-            order_id = str(order_data.id)
-            if order_timestamp < cutoff_timestamp and order_id not in SETTINGS.sent_order_ids:
-                old_orders_ids.append(order_id)
-
-            if len(old_orders_ids) >= max_count:
-                break
-
-        if batch_timestamps:
-            min_timestamp = min(batch_timestamps)
-            if min_timestamp >= cutoff_timestamp:
-                logger.info(f"{PREFIX} Все заказы в батче новее cutoff — останавливаем сканирование.")
-                break
-
-        start_from = result[0]
-        if not start_from:
-            break
-        await asyncio.sleep(1)
-
-    if page_count >= max_pages:
-        logger.warning(f"{PREFIX} Достигнут лимит страниц ({max_pages}) — возможно, не все старые заказы найдены.")
-
-    return old_orders_ids[:max_count]
 
 
 class FunPaySupportAPI:
@@ -221,6 +169,57 @@ class FunPaySupportAPI:
         return r.json()
 
 
+async def get_old_orders_for_ticket(acc: Account, age_hours: int, max_count: int) -> List[str]:
+    old_orders_ids = []
+    cutoff_timestamp = (datetime.now() - timedelta(hours=age_hours)).timestamp()
+    start_from = None
+    subcs = {}
+    locale = acc.locale
+    page_count = 0
+    max_pages = 10
+
+    while len(old_orders_ids) < max_count and page_count < max_pages:
+        try:
+            result = acc.get_sales(start_from=start_from, state=OrderStatuses.PAID, locale=locale, subcategories=subcs)
+            page_count += 1
+        except Exception as e:
+            logger.error(f"{PREFIX} Ошибка получения заказов: {e}", exc_info=True)
+            break
+
+        if not result or not result[1]:
+            break
+
+        batch_timestamps = []
+        for order_data in result[1]:
+            order_timestamp = parse_funpay_date(order_data.date)
+            if order_timestamp == 0:
+                continue
+            batch_timestamps.append(order_timestamp)
+
+            order_id = str(order_data.id)
+            if order_timestamp < cutoff_timestamp and order_id not in SETTINGS.sent_order_ids:
+                old_orders_ids.append(order_id)
+
+            if len(old_orders_ids) >= max_count:
+                break
+
+        if batch_timestamps:
+            min_timestamp = min(batch_timestamps)
+            if min_timestamp >= cutoff_timestamp:
+                logger.info(f"{PREFIX} Все заказы в батче новее cutoff — останавливаем сканирование.")
+                break
+
+        start_from = result[0]
+        if not start_from:
+            break
+        await asyncio.sleep(1)
+
+    if page_count >= max_pages:
+        logger.warning(f"{PREFIX} Достигнут лимит страниц ({max_pages}) — возможно, не все старые заказы найдены.")
+
+    return old_orders_ids[:max_count]
+
+
 async def _report_deal_problem_raw(acc: Account, deal_id: str) -> bool:
     try:
         try:
@@ -268,11 +267,11 @@ async def report_deal_problems(acc: Account, orders_ids: List[str]) -> List[str]
 
 def _main_text(status_text: str = "Нет старых заказов.") -> str:
     return (
-        f"Плагин для отправки авто-тикетов в поддержку о подтверждении старых заказов\n\n"
-        f"Заказов в тикете: {SETTINGS.max_orders_in_ticket}\n"
-        f"Старше часов: {SETTINGS.order_age_hours}\n"
-        f"Отправлено заказов: {len(SETTINGS.sent_order_ids)}\n\n"
-        f"{status_text}"
+        f"⚙️ Настройки авто-тикета\n\n"
+        f"∟ Заказов в тикете: {SETTINGS.max_orders_in_ticket}\n"
+        f"∟ Старше часов: {SETTINGS.order_age_hours}\n"
+        f"∟ Отправлено заказов: {len(SETTINGS.sent_order_ids)}\n\n"
+        f"📝 {status_text}"
     )
 
 
@@ -394,7 +393,7 @@ def init_commands(cardinal: Cardinal, *args):
     tg.cbq_handler(act_edit_time, lambda c: f"{CBT_EDIT_TIME}:" in c.data)
     tg.cbq_handler(act_edit_count, lambda c: f"{CBT_EDIT_COUNT}:" in c.data)
     tg.msg_handler(open_menu_command, commands=["auto_ticket"])
-    cardinal.add_telegram_commands(UUID, [("auto_ticket", "открыть меню авто-тикетов", True)])
+    cardinal.add_telegram_commands(UUID, [("auto_ticket", "открыть меню авто-тикета", True)])
 
 
 BIND_TO_PRE_INIT = [init_commands]
